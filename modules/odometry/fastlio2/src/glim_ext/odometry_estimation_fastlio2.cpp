@@ -776,8 +776,8 @@ EstimationFrame::ConstPtr OdometryEstimationFastLIO2::insert_frame(const Preproc
     p.curvature = (i < raw_frame->times.size()) ? raw_frame->times[i] * 1000.0 : 0.0;
   }
 
-  // Sort by time
-  std::sort(pcl_in->points.begin(), pcl_in->points.end(), [](const PointType& a, const PointType& b) { return a.curvature < b.curvature; });
+  // Sort by time (stable: raw_frame is already time-sorted, so this keeps raw_frame->neighbors indices valid)
+  std::stable_sort(pcl_in->points.begin(), pcl_in->points.end(), [](const PointType& a, const PointType& b) { return a.curvature < b.curvature; });
 
   // IMU forward propagation + undistortion
   *(impl->feats_undistort) = *pcl_in;
@@ -858,7 +858,15 @@ EstimationFrame::ConstPtr OdometryEstimationFastLIO2::insert_frame(const Preproc
   T_world_imu.linear() = impl->state_point.rot.toRotationMatrix();
   T_world_imu.translation() = impl->state_point.pos;
 
-  new_frame->set_T_world_sensor(FrameID::IMU, T_world_imu);
+  // ESIKF state is at scan end, but GLIM expects the pose at frame->stamp (scan start):
+  // sub_mapping re-deskews keyframes into the scan-start frame. Use the ESIKF-corrected
+  // propagated pose at pcl_beg_time (first entry of imu_propagated_poses).
+  Eigen::Isometry3d T_world_imu_start = T_world_imu;
+  if (!impl->imu_propagated_poses.empty()) {
+    const Eigen::Isometry3d T_correction = T_world_imu * impl->imu_propagated_poses.back().second.inverse();
+    T_world_imu_start = T_correction * impl->imu_propagated_poses.front().second;
+  }
+  new_frame->set_T_world_sensor(FrameID::IMU, T_world_imu_start);
 
   // Velocity
   new_frame->v_world_imu = impl->state_point.vel;
@@ -868,9 +876,9 @@ EstimationFrame::ConstPtr OdometryEstimationFastLIO2::insert_frame(const Preproc
   new_frame->imu_bias.tail<3>() = impl->state_point.bg;
 
   // Create PointCloudCPU from undistorted points
-  // FAST-LIO2's undistorted points are in the LiDAR frame.
-  // Transform them to IMU frame for compatibility with sub_mapping.
-  Eigen::Isometry3d T_imu_lidar = impl->T_lidar_imu.inverse();
+  // FAST-LIO2's undistorted points are in the LiDAR frame at scan end.
+  // Transform them to the IMU frame at scan start to match T_world_imu_start.
+  Eigen::Isometry3d T_imu_lidar = T_world_imu_start.inverse() * T_world_imu * impl->T_lidar_imu.inverse();
   std::vector<Eigen::Vector4d> undistorted_points(impl->feats_undistort->size());
   for (size_t i = 0; i < impl->feats_undistort->size(); i++) {
     Eigen::Vector4d p_lidar(impl->feats_undistort->points[i].x, impl->feats_undistort->points[i].y, impl->feats_undistort->points[i].z, 1.0);

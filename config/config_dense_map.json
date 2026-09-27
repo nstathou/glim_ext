@@ -1,0 +1,16 @@
+{
+  "dense_map": {
+    "min_range": 1.0,
+    "max_range": 0.0,
+    "enable_cropbox_filter": false,
+    "crop_bbox_min": [-1.5, -1.5, -1.0],
+    "crop_bbox_max": [1.5, 1.5, 1.0],
+    "enable_outlier_removal": false,
+    "outlier_removal_k": 10,
+    "outlier_std_mul_factor": 2.0,
+    "scan_voxel_resolution": 0.0,
+    "map_voxel_resolution": 0.0,
+    "num_threads": 2,
+    "max_queue_size": 20
+  }
+}
